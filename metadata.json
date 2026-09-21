@@ -1,0 +1,6 @@
+{
+  "name": "Absensi Online Sidik Jari",
+  "description": "Aplikasi absensi online dengan sistem biometrik sidik jari, pemantau waktu presisi real-time, serta fitur import dan export Excel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
