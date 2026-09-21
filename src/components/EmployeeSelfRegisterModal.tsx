@@ -11,10 +11,13 @@ import {
   Mail, 
   ArrowRight,
   RefreshCw,
-  Building2
+  Building2,
+  Loader2
 } from 'lucide-react';
 import { Employee, Kiosk, Shift, BranchInvitation } from '../types';
 import { soundEffects } from '../utils/audio';
+import { db } from '../services/firebase';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 
 interface EmployeeSelfRegisterModalProps {
   isOpen: boolean;
@@ -50,28 +53,130 @@ export const EmployeeSelfRegisterModal: React.FC<EmployeeSelfRegisterModalProps>
   const [scanProgress, setScanProgress] = useState(0);
   const [isFingerprintCaptured, setIsFingerprintCaptured] = useState(false);
 
-  // Errors
+  // Errors & Loading
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [cloudInvitation, setCloudInvitation] = useState<BranchInvitation | null>(null);
+  const [cloudKiosk, setCloudKiosk] = useState<Kiosk | null>(null);
 
   // Auto-sync initial invite code from prop
   useEffect(() => {
     if (initialInviteCode) {
-      setInviteCode(initialInviteCode.toUpperCase().trim());
+      const formatted = initialInviteCode.toUpperCase().trim();
+      setInviteCode(formatted);
+      // Auto-validate if code is provided in URL
+      checkInviteCodeOnline(formatted);
     }
-  }, [initialInviteCode]);
+  }, [initialInviteCode, isOpen]);
 
-  if (!isOpen) return null;
-
-  // Find matching invitation
+  // Find matching invitation (local or cloud)
   const cleanCode = inviteCode.trim().toUpperCase();
-  const matchedInvitation = invitations.find(
+  const matchedInvitation = cloudInvitation || invitations.find(
     (inv) => inv.code.toUpperCase() === cleanCode && inv.status === 'Aktif'
   );
-  const matchedKiosk = matchedInvitation
-    ? kiosks.find((k) => k.id === matchedInvitation.kioskId) || null
-    : null;
+  const matchedKiosk = cloudKiosk || (matchedInvitation
+    ? (kiosks.find((k) => k.id === matchedInvitation.kioskId) || {
+        id: matchedInvitation.kioskId,
+        kode: matchedInvitation.code,
+        nama: matchedInvitation.kioskNama || 'Cabang Kios',
+        kota: 'Indonesia',
+        alamat: 'Lokasi Cabang',
+        telepon: '-',
+        jamOperasional: '08:00 - 21:00',
+        status: 'Aktif' as const
+      })
+    : null);
 
-  const handleValidateCode = (e: React.FormEvent) => {
+  async function checkInviteCodeOnline(codeToCheck: string) {
+    if (!codeToCheck) return;
+    setIsValidating(true);
+    setErrorMsg(null);
+    try {
+      // 1. Check local array first
+      const local = invitations.find(
+        (inv) => inv.code.toUpperCase() === codeToCheck && inv.status === 'Aktif'
+      );
+      if (local) {
+        setCloudInvitation(local);
+        const k = kiosks.find((x) => x.id === local.kioskId);
+        if (k) setCloudKiosk(k);
+        setIsValidating(false);
+        return local;
+      }
+
+      // 2. Query Firestore directly
+      const q = query(
+        collection(db, 'invitations'), 
+        where('code', '==', codeToCheck)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const found = snap.docs[0].data() as BranchInvitation;
+        if (found.status === 'Aktif') {
+          setCloudInvitation(found);
+          // fetch kiosk doc if exists
+          try {
+            const kDoc = await getDoc(doc(db, 'kiosks', found.kioskId));
+            if (kDoc.exists()) {
+              setCloudKiosk(kDoc.data() as Kiosk);
+            } else {
+              setCloudKiosk({
+                id: found.kioskId,
+                kode: found.code,
+                nama: found.kioskNama || 'Cabang Kios',
+                kota: 'Indonesia',
+                alamat: 'Lokasi Cabang',
+                telepon: '-',
+                jamOperasional: '08:00 - 21:00',
+                status: 'Aktif'
+              });
+            }
+          } catch {
+            // fallback kiosk
+            setCloudKiosk({
+              id: found.kioskId,
+              kode: found.code,
+              nama: found.kioskNama || 'Cabang Kios',
+              kota: 'Indonesia',
+              alamat: 'Lokasi Cabang',
+              telepon: '-',
+              jamOperasional: '08:00 - 21:00',
+              status: 'Aktif'
+            });
+          }
+          setIsValidating(false);
+          return found;
+        } else {
+          setErrorMsg('Kode undangan ini telah dinonaktifkan oleh Owner.');
+        }
+      } else {
+        // Also try all invitations to handle potential case mismatch
+        const allSnap = await getDocs(collection(db, 'invitations'));
+        let foundCase: BranchInvitation | null = null;
+        allSnap.forEach((d) => {
+          const inv = d.data() as BranchInvitation;
+          if (inv.code && inv.code.trim().toUpperCase() === codeToCheck && inv.status === 'Aktif') {
+            foundCase = inv;
+          }
+        });
+        if (foundCase) {
+          const validInv: BranchInvitation = foundCase;
+          setCloudInvitation(validInv);
+          setIsValidating(false);
+          return validInv;
+        }
+        setErrorMsg('Kode undangan tidak ditemukan di database online. Pastikan kode benar atau hubungi Owner.');
+      }
+    } catch (err) {
+      console.error('Error verifying invitation code online:', err);
+      setErrorMsg('Gagal memverifikasi ke server online. Silakan periksa koneksi internet.');
+    } finally {
+      setIsValidating(false);
+    }
+    return null;
+  }
+
+  const handleValidateCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -80,13 +185,16 @@ export const EmployeeSelfRegisterModal: React.FC<EmployeeSelfRegisterModalProps>
       return;
     }
 
-    if (!matchedInvitation) {
-      setErrorMsg('Kode undangan tidak ditemukan atau sudah dinonaktifkan. Hubungi Owner Anda.');
-      return;
+    // Check if we already have it or check online
+    let validInv: BranchInvitation | null | undefined = matchedInvitation;
+    if (!validInv) {
+      validInv = (await checkInviteCodeOnline(cleanCode)) || null;
     }
 
-    soundEffects.playSuccessChime();
-    setStep(2);
+    if (validInv) {
+      soundEffects.playSuccessChime();
+      setStep(2);
+    }
   };
 
   const handleStartBiometricScan = () => {
@@ -250,10 +358,20 @@ export const EmployeeSelfRegisterModal: React.FC<EmployeeSelfRegisterModalProps>
 
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                disabled={isValidating}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span>Validasi Kode & Lanjutkan</span>
-                <ArrowRight className="w-4 h-4" />
+                {isValidating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Memeriksa Database Cloud...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Validasi Kode & Lanjutkan</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
           )}

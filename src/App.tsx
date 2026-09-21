@@ -53,6 +53,27 @@ import { BranchInvitationModal } from './components/BranchInvitationModal';
 import { EmployeeSelfRegisterModal } from './components/EmployeeSelfRegisterModal';
 import { soundEffects } from './utils/audio';
 import { Mail, CheckCircle2, AlertCircle, Store, Lock, Crown } from 'lucide-react';
+import {
+  testConnection,
+  subscribeKiosks,
+  subscribeInvitations,
+  subscribeEmployees,
+  subscribeAttendanceRecords,
+  subscribeShifts,
+  subscribeOwnerAccount,
+  syncKioskToFirestore,
+  deleteKioskFromFirestore,
+  syncInvitationToFirestore,
+  deleteInvitationFromFirestore,
+  syncEmployeeToFirestore,
+  deleteEmployeeFromFirestore,
+  syncAttendanceRecordToFirestore,
+  deleteAttendanceRecordFromFirestore,
+  syncBatchEmployeesToFirestore,
+  syncShiftToFirestore,
+  syncOwnerAccountToFirestore,
+  seedInitialDataIfEmpty
+} from './services/firebase';
 
 export default function App() {
   const [employees, setEmployees] = useState<Employee[]>(() => getStoredEmployees());
@@ -74,6 +95,7 @@ export default function App() {
   const [emailLogs, setEmailLogs] = useState<EmailNotificationLog[]>(() => getStoredEmailLogs());
   const [settingsModalTab, setSettingsModalTab] = useState<'notifications' | 'shifts'>('notifications');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
 
   // Modals state
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
@@ -100,7 +122,83 @@ export default function App() {
     }
   }, []);
 
-  // Synchronize to localStorage
+  // Initialize Firebase Firestore real-time cloud subscriptions & data seeding
+  useEffect(() => {
+    let unsubscribeKiosks: (() => void) | undefined;
+    let unsubscribeInvitations: (() => void) | undefined;
+    let unsubscribeEmployees: (() => void) | undefined;
+    let unsubscribeAttendance: (() => void) | undefined;
+    let unsubscribeShifts: (() => void) | undefined;
+    let unsubscribeOwner: (() => void) | undefined;
+
+    async function initFirestoreRealtime() {
+      try {
+        await testConnection();
+
+        // Seed initial data if Firestore collections are newly initialized
+        await seedInitialDataIfEmpty(
+          kiosks,
+          employees,
+          invitations,
+          shifts,
+          ownerAccount
+        );
+
+        // Real-time subscriptions across all connected devices
+        unsubscribeKiosks = subscribeKiosks((remoteKiosks) => {
+          if (remoteKiosks.length > 0) {
+            setKiosks(remoteKiosks);
+          }
+        });
+
+        unsubscribeInvitations = subscribeInvitations((remoteInvs) => {
+          setInvitations(remoteInvs);
+        });
+
+        unsubscribeEmployees = subscribeEmployees((remoteEmps) => {
+          if (remoteEmps.length > 0) {
+            setEmployees(remoteEmps);
+          }
+        });
+
+        unsubscribeAttendance = subscribeAttendanceRecords((remoteRecords) => {
+          setRecords(remoteRecords);
+        });
+
+        unsubscribeShifts = subscribeShifts((remoteShifts) => {
+          if (remoteShifts.length > 0) {
+            setShifts(remoteShifts);
+          }
+        });
+
+        unsubscribeOwner = subscribeOwnerAccount((remoteOwner) => {
+          if (remoteOwner) {
+            setOwnerAccount(remoteOwner);
+            if (remoteOwner.pin) {
+              setOwnerPin(remoteOwner.pin);
+            }
+          }
+        });
+
+        setIsCloudSynced(true);
+      } catch (err) {
+        console.error('Error establishing Firestore connection:', err);
+      }
+    }
+
+    initFirestoreRealtime();
+
+    return () => {
+      unsubscribeKiosks?.();
+      unsubscribeInvitations?.();
+      unsubscribeEmployees?.();
+      unsubscribeAttendance?.();
+      unsubscribeShifts?.();
+      unsubscribeOwner?.();
+    };
+  }, []);
+
+  // Synchronize to localStorage (Offline Cache)
   useEffect(() => {
     saveEmployees(employees);
   }, [employees]);
@@ -192,6 +290,8 @@ export default function App() {
     };
 
     setRecords((prev) => [stampedRecord, ...prev]);
+    // Sync to Firestore cloud
+    syncAttendanceRecordToFirestore(stampedRecord);
 
     // Check and trigger automated email notifications
     const emp = employees.find((e) => e.id === stampedRecord.employeeId) ||
@@ -242,38 +342,45 @@ export default function App() {
   // Handler: delete single record
   const handleDeleteRecord = (id: string) => {
     setRecords((prev) => prev.filter((r) => r.id !== id));
+    deleteAttendanceRecordFromFirestore(id);
     showToast('🗑️ Catatan presensi telah dihapus');
   };
 
   // Handler: employee CRUD
   const handleAddEmployee = (newEmp: Employee) => {
     setEmployees((prev) => [newEmp, ...prev]);
+    syncEmployeeToFirestore(newEmp);
     showToast(`👤 Karyawan "${newEmp.nama}" berhasil didaftarkan`);
   };
 
   const handleUpdateEmployee = (updated: Employee) => {
     setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+    syncEmployeeToFirestore(updated);
     showToast(`👤 Data "${updated.nama}" diperbarui`);
   };
 
   const handleDeleteEmployee = (id: string) => {
     setEmployees((prev) => prev.filter((e) => e.id !== id));
+    deleteEmployeeFromFirestore(id);
     showToast(`👤 Data karyawan berhasil dihapus`);
   };
 
   // Handler: Kiosk CRUD
   const handleAddKiosk = (kiosk: Kiosk) => {
     setKiosks((prev) => [...prev, kiosk]);
+    syncKioskToFirestore(kiosk);
     showToast(`🏬 Cabang Kios "${kiosk.nama}" berhasil didaftarkan`);
   };
 
   const handleUpdateKiosk = (updated: Kiosk) => {
     setKiosks((prev) => prev.map((k) => (k.id === updated.id ? updated : k)));
+    syncKioskToFirestore(updated);
     showToast(`🏬 Cabang Kios "${updated.nama}" diperbarui`);
   };
 
   const handleDeleteKiosk = (id: string) => {
     setKiosks((prev) => prev.filter((k) => k.id !== id));
+    deleteKioskFromFirestore(id);
     showToast(`🏬 Cabang Kios berhasil dihapus`);
   };
 
@@ -296,19 +403,19 @@ export default function App() {
   // Handlers for Excel imports
   const handleImportAttendance = (importedRecords: AttendanceRecord[]) => {
     setRecords((prev) => [...importedRecords, ...prev]);
+    importedRecords.forEach((rec) => syncAttendanceRecordToFirestore(rec));
     soundEffects.playSuccessChime();
     showToast(`📥 Berhasil mengimpor ${importedRecords.length} catatan presensi`);
   };
 
   const handleImportEmployees = (importedEmployees: Employee[]) => {
     // Merge without duplicates by NIP
-    setEmployees((prev) => {
-      const existingNips = new Set(prev.map((e) => e.nip.toLowerCase()));
-      const filtered = importedEmployees.filter(
-        (e) => !existingNips.has(e.nip.toLowerCase())
-      );
-      return [...filtered, ...prev];
-    });
+    const existingNips = new Set(employees.map((e) => e.nip.toLowerCase()));
+    const filtered = importedEmployees.filter(
+      (e) => !existingNips.has(e.nip.toLowerCase())
+    );
+    setEmployees((prev) => [...filtered, ...prev]);
+    syncBatchEmployeesToFirestore(filtered);
     soundEffects.playSuccessChime();
     showToast(`📥 Berhasil mengimpor ${importedEmployees.length} data karyawan`);
   };
@@ -316,38 +423,47 @@ export default function App() {
   // Handler: Branch Invitations
   const handleAddInvitation = (inv: BranchInvitation) => {
     setInvitations((prev) => [inv, ...prev]);
+    syncInvitationToFirestore(inv);
     showToast(`🎟️ Kode undangan "${inv.code}" untuk cabang ${inv.kioskNama} berhasil dibuat`);
   };
 
   const handleToggleInvitationStatus = (id: string) => {
     setInvitations((prev) =>
-      prev.map((inv) =>
-        inv.id === id
-          ? { ...inv, status: inv.status === 'Aktif' ? 'Nonaktif' : 'Aktif' }
-          : inv
-      )
+      prev.map((inv) => {
+        if (inv.id === id) {
+          const updated = { ...inv, status: inv.status === 'Aktif' ? 'Nonaktif' as const : 'Aktif' as const };
+          syncInvitationToFirestore(updated);
+          return updated;
+        }
+        return inv;
+      })
     );
     showToast('🎟️ Status undangan cabang diperbarui');
   };
 
   const handleDeleteInvitation = (id: string) => {
     setInvitations((prev) => prev.filter((inv) => inv.id !== id));
+    deleteInvitationFromFirestore(id);
     showToast('🗑️ Kode undangan dihapus');
   };
 
   // Handler: Employee self-registration with invitation code
   const handleEmployeeSelfRegistered = (newEmp: Employee, targetKiosk: Kiosk) => {
-    // Add employee to master list
+    // Add employee to master list & Firestore
     setEmployees((prev) => [newEmp, ...prev]);
+    syncEmployeeToFirestore(newEmp);
 
     // Update invitation usedCount
     if (newEmp.invitedByCode) {
       setInvitations((prev) =>
-        prev.map((inv) =>
-          inv.code.toUpperCase() === newEmp.invitedByCode?.toUpperCase()
-            ? { ...inv, usedCount: inv.usedCount + 1 }
-            : inv
-        )
+        prev.map((inv) => {
+          if (inv.code.toUpperCase() === newEmp.invitedByCode?.toUpperCase()) {
+            const updated = { ...inv, usedCount: (inv.usedCount || 0) + 1 };
+            syncInvitationToFirestore(updated);
+            return updated;
+          }
+          return inv;
+        })
       );
     }
 
@@ -367,6 +483,7 @@ export default function App() {
       setOwnerPin(account.pin);
     }
     setUserRole('owner');
+    syncOwnerAccountToFirestore(account);
     soundEffects.playSuccessChime();
     showToast(`👑 Selamat datang kembali, ${account.namaOwner}! Akses Owner aktif.`);
   };
@@ -377,6 +494,7 @@ export default function App() {
       setOwnerPin(newAccount.pin);
     }
     setUserRole('owner');
+    syncOwnerAccountToFirestore(newAccount);
     soundEffects.playSuccessChime();
     showToast(`👑 Akun Owner (${newAccount.email}) berhasil dibuat!`);
   };
@@ -393,6 +511,7 @@ export default function App() {
     if (updated.pin) {
       setOwnerPin(updated.pin);
     }
+    syncOwnerAccountToFirestore(updated);
     showToast('👤 Data akun Owner berhasil diperbarui');
   };
 
@@ -424,6 +543,7 @@ export default function App() {
         onOpenOwnerAuthModal={() => setIsOwnerAuthModalOpen(true)}
         onOpenBranchInvitationModal={() => setIsBranchInvitationModalOpen(true)}
         onOpenEmployeeRegisterModal={() => setIsEmployeeRegisterModalOpen(true)}
+        isCloudSynced={isCloudSynced}
       />
 
       {/* Main Container */}

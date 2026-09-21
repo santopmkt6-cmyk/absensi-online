@@ -14,7 +14,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { EmailNotificationSettings, UserRole, Kiosk, OwnerAccount } from '../types';
-import { Share2, UserPlus } from 'lucide-react';
+import { Share2, UserPlus, Cloud, Loader2 } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'terminal' | 'history' | 'employees' | 'kiosks';
@@ -29,6 +29,7 @@ interface NavbarProps {
   onOpenOwnerAuthModal?: () => void;
   onOpenBranchInvitationModal?: () => void;
   onOpenEmployeeRegisterModal?: () => void;
+  isCloudSynced?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -44,6 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenOwnerAuthModal,
   onOpenBranchInvitationModal,
   onOpenEmployeeRegisterModal,
+  isCloudSynced = true,
 }) => {
   const isOwner = userRole === 'owner';
 
@@ -65,6 +67,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                   LIVE
                 </span>
+                {isCloudSynced ? (
+                  <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Terhubung ke Database Cloud Firestore secara Real-time">
+                    <Cloud className="w-3 h-3 text-emerald-600" />
+                    <span>Cloud Sync</span>
+                  </span>
+                ) : (
+                  <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                    <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
+                    <span>Sinkronisasi...</span>
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
                 {activeKiosk ? (

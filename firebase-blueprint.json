@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "kiosks": {
+      "title": "Kiosk",
+      "description": "Branch kiosk location configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nama": { "type": "string" },
+        "lokasi": { "type": "string" },
+        "kode": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "radiusMeters": { "type": "number" },
+        "aktif": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "nama", "kode"]
+    },
+    "invitations": {
+      "title": "BranchInvitation",
+      "description": "Branch self-registration invitation code for employees",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "kioskId": { "type": "string" },
+        "kioskNama": { "type": "string" },
+        "status": { "type": "string", "enum": ["Aktif", "Nonaktif"] },
+        "createdAt": { "type": "string" },
+        "usedCount": { "type": "number" }
+      },
+      "required": ["id", "code", "kioskId", "status"]
+    },
+    "employees": {
+      "title": "Employee",
+      "description": "Registered employee record with biometric fingerprint",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nama": { "type": "string" },
+        "email": { "type": "string" },
+        "jabatan": { "type": "string" },
+        "departemen": { "type": "string" },
+        "kioskId": { "type": "string" },
+        "shiftId": { "type": "string" },
+        "fingerprintRegistered": { "type": "boolean" },
+        "fingerprintTemplate": { "type": "string" },
+        "status": { "type": "string", "enum": ["Aktif", "Cuti", "Nonaktif"] },
+        "tanggalBergabung": { "type": "string" },
+        "faceRegistered": { "type": "boolean" },
+        "invitedByCode": { "type": "string" }
+      },
+      "required": ["id", "nama", "jabatan", "departemen", "fingerprintRegistered"]
+    },
+    "attendance": {
+      "title": "AttendanceRecord",
+      "description": "Attendance log clock-in and clock-out entries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "nama": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "type": { "type": "string", "enum": ["in", "out"] },
+        "method": { "type": "string", "enum": ["fingerprint", "face", "manual"] },
+        "similarity": { "type": "number" },
+        "status": { "type": "string", "enum": ["Tepat Waktu", "Terlambat", "Pulang Awal"] },
+        "shiftId": { "type": "string" },
+        "notes": { "type": "string" },
+        "kioskId": { "type": "string" },
+        "kioskNama": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "nama", "timestamp", "type", "method", "status"]
+    },
+    "shifts": {
+      "title": "Shift",
+      "description": "Work shift schedule configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nama": { "type": "string" },
+        "jamMasuk": { "type": "string" },
+        "jamPulang": { "type": "string" },
+        "toleransiMenit": { "type": "number" },
+        "hariKerja": { "type": "string" },
+        "warna": { "type": "string" }
+      },
+      "required": ["id", "nama", "jamMasuk", "jamPulang"]
+    },
+    "systemConfig": {
+      "title": "SystemConfig",
+      "description": "Owner settings and system configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "businessName": { "type": "string" },
+        "ownerPin": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "/kiosks/{kioskId}": {
+      "schema": "kiosks",
+      "description": "Collection of physical kiosk branches"
+    },
+    "/invitations/{invitationId}": {
+      "schema": "invitations",
+      "description": "Collection of employee self-registration invite codes per branch"
+    },
+    "/employees/{employeeId}": {
+      "schema": "employees",
+      "description": "Collection of employees across all kiosks"
+    },
+    "/attendance/{recordId}": {
+      "schema": "attendance",
+      "description": "Collection of clock-in and clock-out attendance events"
+    },
+    "/shifts/{shiftId}": {
+      "schema": "shifts",
+      "description": "Work shift configurations"
+    },
+    "/systemConfig/{configId}": {
+      "schema": "systemConfig",
+      "description": "Global application configuration and Owner account"
+    }
+  }
+}
